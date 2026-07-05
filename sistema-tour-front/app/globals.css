@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme {
+  /* 🌸 Registramos tus colores de Playa del Carmen de forma nativa para Tailwind v4 */
+  --color-tropical-green: #A8E6CF;
+  --color-tropical-coral: #FFB7B2;
+  --color-tropical-yellow: #FFDAC1;
+  --color-tropical-bg: #F4F9F4;
+  --color-tropical-text: #3D3D3D;
+
+  /* Valores por defecto de Next.js */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  /* Forzamos que el fondo use el color de tu diseño por defecto */
+  background: var(--color-tropical-bg);
+  color: var(--color-tropical-text);
+  font-family: Arial, Helvetica, sans-serif;
+}

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.env
+.venv/
+venv/
+env/
+ENV/
+dist/
+build/
+*.egg-info/
+*.log
+
+# Base de datos
+*.db
+*.sqlite
+*.sqlite3
+
+# N8N
+.n8n/
+*.n8n.json
+*.n8n.backup
+
+# VS Code
+.vscode/
+.idea/
+*.swp
+
+# Archivos sensibles
+.env
+.env.local
+.env.production
+config/secrets.py
+
+# Logs
+logs/
+*.log
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Node (si usas frontend Next.js)
+node_modules/
+.next/
+out/
