@@ -113,15 +113,9 @@ El sistema está construido con un enfoque **multi-tenant**, permitiendo que mú
 
 ## 🔄 Flujo de Trabajo
 
-```mermaid
-sequenceDiagram
-    participant V as Vendedor
-    participant F as Frontend
-    participant B as Backend
-    participant N as n8n
-    participant E as Email
-    participant G as Guía
+<img width="694" height="260" alt="sistema QR" src="https://github.com/user-attachments/assets/744a4458-f6bb-43c9-8143-9cf71a5b3db0" />
 
+El flujo se principal se activa con el disparo de una reserva pasando por los filtros para recolectar la informacion necesaria , luego por un sistema logico de compuerta que dirije la infomacion hacia la generacion de codigo qr pegandole al endpoint correspondiente si fue abonada en su totalidad y envia un HTML con su codigo QR y a disfrutar de su viaje. De lo contrario ,se notifica al cliente , que su reserva fue creada exitosamente y que debe abonar x para obtener su codigo QR
     V->>F: Crea reserva
     F->>B: POST /api/v1/reservas
     B->>B: Valida & guarda
