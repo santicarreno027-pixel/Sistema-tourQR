@@ -40,7 +40,6 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             response_body += chunk
             
         # Reconstruir la respuesta para que pueda ser leida por el cliente
-        # FastAPI's background tasks might interfere if we just read it, but this is a simple approach
         try:
             body_json = json.loads(response_body.decode()) if response_body else None
         except:

@@ -158,3 +158,41 @@ class ReservaUpdate(BaseModel):
                     continue
             raise ValueError(f"Formato de fecha inválido. Usa DD-MM-YYYY")
         return v
+
+# ==========================================
+# 6. SCHEMA PARA LA VISTA SQL (vista_reservas_completas)
+# ==========================================
+class ReservaVistaCompleta(BaseModel):
+    id: uuid.UUID
+    folio_fisico: Optional[str]
+    cliente_nombre: str
+    cliente_telefono: Optional[str]
+    cliente_email: EmailStr
+    tour_nombre: str
+    fecha_servicio: date
+    hora_salida: Optional[str]
+    ubicacion_pickup: Optional[str]
+    pax_adultos: int
+    pax_menores: int
+    pax_infantes: int
+    id_empresa: str
+
+    # 🌟 La vista expone la columna como "estado" (r.estado), no "estado_reserva"
+    estado_reserva: str
+    contador_escaneos: int
+    creado_en: datetime
+    primer_escaneo_en: Optional[datetime] = None
+    ultimo_escaneo_en: Optional[datetime] = None
+
+    vendedor_nombre: Optional[str] = None
+    monto_total: Optional[float] = None
+    monto_deposito: Optional[float] = None
+    monto_saldo: Optional[float] = None
+    status_pago: Optional[str] = None
+    finanzas_actualizado_en: Optional[datetime] = None
+
+    total_pax: int
+    estado_pago: str
+
+    class Config:
+        from_attributes = True

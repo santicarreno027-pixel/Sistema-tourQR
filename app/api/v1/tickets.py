@@ -1,14 +1,15 @@
 import uuid
-from fastapi import APIRouter, Depends, status, Request
+from fastapi import APIRouter, Depends, status, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.services.ticket_service import TicketService
+from app.services.reserva_service import ReservaService
 from app.core.database import get_db
 from app.api.deps import verify_api_key
-from app.views.ticket_html import generar_pantalla_html, generar_bloque_cobro_html
+from app.views.ticket_html import generar_pantalla_html, generar_bloque_cobro_html, generar_bloque_confirmar_html
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -19,84 +20,73 @@ router = APIRouter(prefix="/tickets", tags=["Tickets Scanner"])
 
 # =========================================================================
 # ENDPOINT PÚBLICO: Escaneo QR desde el celular del guía
-# ✅ SIN AUTENTICACIÓN - Público para que funcione desde cualquier dispositivo
 # =========================================================================
 @router.get("/scan/{ticket_id}", response_class=HTMLResponse)
 @limiter.limit("5/minute")
 async def escanear_codigo_qr(
     request: Request,
     ticket_id: uuid.UUID,
+    signature: str = "",
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Ruta que se ejecuta al escanear el QR desde la cámara normal del celular.
-    Procesa las reglas de ventana de 4 horas y devuelve una interfaz HTML de color.
-    ✅ SIN AUTENTICACIÓN - Pública
+    Ruta de solo lectura (GET) que valida la firma digital y muestra el estado del ticket.
+    No realiza escrituras en la base de datos para evitar falsos positivos por bots.
     """
-    # 1. Ejecutamos la matemática del servicio
-    resultado = await TicketService.validar_y_registrar_escaneo(db, ticket_id)
-    reserva = resultado.detalles
+    # 1. Obtener detalles de la reserva sin mutar
+    reserva = await TicketService.obtener_detalles_reserva(db, ticket_id)
+    if not reserva:
+        return generar_pantalla_html(
+            color_fondo="#d32f2f", # Rojo
+            titulo="❌ TICKET INVÁLIDO",
+            mensaje="ERROR: El ticket no existe o fue eliminado."
+        )
 
-    # --- CASO 1: ERROR O ACCESO DENEGADO (PANTALLA ROJA / AMARILLA) ---
+    # 2. Validar Firma Digital para prevenir IDOR y enumeración de UUIDs
+    from app.core.security import verificar_firma_ticket
+    if not verificar_firma_ticket(str(ticket_id), reserva.id_empresa, signature):
+        return generar_pantalla_html(
+            color_fondo="#d32f2f", # Rojo
+            titulo="🛑 ACCESO DENEGADO",
+            mensaje="Firma digital del ticket inválida o ausente. Por favor, escanee el código QR original."
+        )
+
+    # 3. Evaluar reglas de negocio en memoria (lectura)
+    resultado = await TicketService.validar_ticket_lectura(db, ticket_id)
+
+    # --- CASO 1: ERROR DE FECHA O CADUCIDAD (PANTALLA ROJA / AMARILLA) ---
     if not resultado.valido:
-        # Si el ticket ni siquiera existe
-        if not reserva:
-            return generar_pantalla_html(
-                color_fondo="#d32f2f", # Rojo
-                titulo="❌ TICKET INVÁLIDO",
-                mensaje=resultado.mensaje
-            )
-        
-        # Si está inactivo todavía (PANTALLA AMARILLA)
-        if "INACTIVO" in resultado.mensaje or "INACTIVO" in resultado.mensaje.upper():
+        if "INACTIVO" in resultado.mensaje.upper():
             return generar_pantalla_html(
                 color_fondo="#fbc02d", # Amarillo
                 titulo="⏳ QR INACTIVO",
                 mensaje=resultado.mensaje
             )
             
-        # Si ya expiró o es fraude (PANTALLA ROJA)
         return generar_pantalla_html(
             color_fondo="#d32f2f", # Rojo
             titulo="🛑 ACCESO DENEGADO",
             mensaje=resultado.mensaje,
             detalles_html=f"""
                 <div class="detalles">
-                    <h3>Datos del Intento:</h3>
-                    <b>Cliente:</b> {getattr(reserva, 'cliente_nombre', 'N/A')}<br>
-                    <b>Tour:</b> {getattr(reserva, 'tour_nombre', 'N/A')}<br>
-                    <b>Escaneos totales:</b> {getattr(reserva, 'contador_escaneos', 0)}
+                    <h3>Datos de la Reserva:</h3>
+                    <b>Cliente:</b> {reserva.cliente_nombre}<br>
+                    <b>Tour:</b> {reserva.tour_nombre}<br>
+                    <b>Estado actual:</b> {reserva.estado}<br>
+                    <b>Escaneos totales:</b> {reserva.contador_escaneos}
                 </div>
             """
         )
 
-    # --- CASO 2: ACCESO VÁLIDO O RE-ENTRADA (PANTALLA VERDE) ---
-    saldo_real = 0
-    
-    try:
-        # Consultamos directamente a la tabla de finanzas usando el ID de la reserva
-        # Esto evita fallos si SQLAlchemy limpió la relación en memoria tras el refresh
-        from sqlalchemy import select
-        from app.models.reserva import FinanzasReserva 
-        
-        stmt_finanzas = select(FinanzasReserva).where(FinanzasReserva.reserva_id == ticket_id)
-        res_finanzas = await db.execute(stmt_finanzas)
-        finanzas_obj = res_finanzas.scalar_one_or_none()
-        
-        if finanzas_obj:
-            saldo_real = finanzas_obj.monto_saldo if finanzas_obj.monto_saldo is not None else 0
-            
-    except Exception as e:
-        print(f"⚠️ Error al consultar finanzas directamente: {e}")
-        saldo_real = 0
+    # --- CASO 2: TICKET VÁLIDO ---
+    # Obtener saldo de finanzas de la reserva
+    saldo_real = reserva.finanzas.monto_saldo if reserva.finanzas and reserva.finanzas.monto_saldo is not None else 0.0
 
-    # Determinar el mensaje y estilo del estatus de pago
     if saldo_real > 0:
         saldo_txt = f'<span class="saldo-alerta">⚠️ SALDO PENDIENTE: ${saldo_real:,.2f} MXN</span>'
     else:
         saldo_txt = '<span class="saldo-pagado">✅ ¡TODO PAGADO!</span>'
 
-    # Detalles base del pasajero
     detalles_base_html = f"""
         <div class="detalles">
             <h3>Detalles del Tour:</h3>
@@ -113,27 +103,100 @@ async def escanear_codigo_qr(
         </div>
     """
 
-    # Si hay saldo pendiente → pantalla naranja + formulario de cobro en campo
+    # Si hay saldo pendiente → pantalla naranja + formulario de cobro seguro
     if saldo_real > 0:
         bloque_cobro = generar_bloque_cobro_html(
             reserva_id=str(ticket_id),
+            signature=signature,
             saldo=saldo_real
         )
         return generar_pantalla_html(
-            color_fondo="#e65100",  # Naranja fuerte = ojo, hay saldo
+            color_fondo="#e65100",  # Naranja fuerte
             titulo="⚠️ SALDO PENDIENTE",
-            mensaje=f"Cobrar ${saldo_real:,.2f} MXN antes de embarcar",
+            mensaje=f"Cobrar ${saldo_real:,.2f} MXN en campo para poder embarcar",
             detalles_html=detalles_base_html + bloque_cobro
         )
 
-    # Sin saldo → pantalla verde de bienvenida
-    titulo_verde = "🟢 RE-ENTRADA OK" if "RE-ENTRADA" in resultado.mensaje.upper() else "✅ BIENVENIDO"
-    return generar_pantalla_html(
-        color_fondo="#388e3c",
-        titulo=titulo_verde,
-        mensaje=resultado.mensaje,
-        detalles_html=detalles_base_html
+    # Sin saldo / Re-entrada válida → pantalla verde con botón de Confirmar Embarque
+    if reserva.estado == "EN_PROCESO":
+        # Si ya está embarcado, informamos al guía que es una re-entrada
+        return generar_pantalla_html(
+            color_fondo="#388e3c",
+            titulo="🟢 RE-ENTRADA OK",
+            mensaje="Pasajeros a bordo. Este ticket ya fue verificado.",
+            detalles_html=detalles_base_html
+        )
+    
+    # Si está PENDIENTE de confirmación, mostramos el botón explícito de confirmación
+    bloque_confirmar = generar_bloque_confirmar_html(
+        reserva_id=str(ticket_id),
+        signature=signature
     )
+    return generar_pantalla_html(
+        color_fondo="#0288d1", # Azul - Listo para embarcar
+        titulo="👍 TICKET VÁLIDO",
+        mensaje="Haga clic a continuación para registrar la entrada del pasajero.",
+        detalles_html=detalles_base_html + bloque_confirmar
+    )
+
+
+# =========================================================================
+# ENDPOINTS SEGUROS FIRMADOS CON HMAC (Acciones del Guía en el Campo)
+# =========================================================================
+@router.post("/scan/{ticket_id}/confirmar")
+async def confirmar_embarque_publico(
+    ticket_id: uuid.UUID,
+    signature: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Ruta de confirmación de embarque (POST). Valida la firma del QR antes de procesar.
+    """
+    reserva = await TicketService.obtener_detalles_reserva(db, ticket_id)
+    if not reserva:
+        return {"valido": False, "mensaje": "La reserva no existe."}
+
+    from app.core.security import verificar_firma_ticket
+    if not verificar_firma_ticket(str(ticket_id), reserva.id_empresa, signature):
+        return {"valido": False, "mensaje": "Firma digital del ticket inválida."}
+
+    return await TicketService.confirmar_embarque_ticket(db, ticket_id)
+
+
+@router.post("/scan/{ticket_id}/registrar-abono")
+async def registrar_abono_publico(
+    ticket_id: uuid.UUID,
+    signature: str,
+    monto_abono: float,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Ruta para que el guía registre un abono de saldo pendiente en efectivo en el campo.
+    Validado mediante firma digital en lugar de requerir credenciales locales.
+    """
+    reserva = await TicketService.obtener_detalles_reserva(db, ticket_id)
+    if not reserva:
+        return {"status": "error", "detail": "La reserva no existe."}
+
+    from app.core.security import verificar_firma_ticket
+    if not verificar_firma_ticket(str(ticket_id), reserva.id_empresa, signature):
+        return {"status": "error", "detail": "Firma digital del ticket inválida."}
+
+    # Llamar al servicio para registrar el abono manual
+    resultado = await ReservaService.registrar_abono_manual(
+        db=db,
+        reserva_id=ticket_id,
+        monto_abono=monto_abono,
+        id_empresa=reserva.id_empresa,
+        background_tasks=background_tasks
+    )
+
+    # Si se liquidó por completo ($0 de saldo), confirmamos de forma automática el embarque
+    if resultado.get("status") == "success" and resultado["datos_operacion"]["saldo_restante"] <= 0:
+        await TicketService.confirmar_embarque_ticket(db, ticket_id)
+
+    return resultado
 
 
 # =========================================================================

@@ -52,3 +52,27 @@ def verificar_admin(credentials: HTTPAuthorizationCredentials = Security(bearer_
         )
 
     return {"user_id": payload.get("sub"), "id_empresa": id_empresa, "email": payload.get("email")}
+
+
+# -------------------------------------------------------------------------
+# 🔑 FIRMA DIGITAL HMAC PARA TICKET QR (Stateless & Secure Validation)
+# -------------------------------------------------------------------------
+import hmac
+import hashlib
+
+def generar_firma_ticket(ticket_id: str, id_empresa: str) -> str:
+    """
+    Genera una firma HMAC de 16 caracteres para un ticket en base al ID y al tenant,
+    usando la API_KEY del backend como secreto.
+    """
+    mensaje = f"{ticket_id}:{id_empresa}".encode()
+    return hmac.new(settings.API_KEY.encode(), mensaje, hashlib.sha256).hexdigest()[:16]
+
+def verificar_firma_ticket(ticket_id: str, id_empresa: str, signature: str) -> bool:
+    """
+    Compara de manera segura (tiempo constante) la firma recibida con la firma esperada.
+    """
+    if not signature:
+        return False
+    firma_esperada = generar_firma_ticket(ticket_id, id_empresa)
+    return hmac.compare_digest(firma_esperada, signature)

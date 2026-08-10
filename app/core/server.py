@@ -1,3 +1,4 @@
+# app/core/server.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -7,17 +8,14 @@ import logging
 
 from app.core.config import settings
 from app.api.middleware.idempotency import IdempotencyMiddleware
-from app.api.v1.tickets import router as tickets_router
-from app.api.v1.reservas import router as reservas_router
-from app.api.v1.vendedores import router as vendedores_router
+from app.api.v1 import auth_router, tickets_router, reservas_router, vendedores_router
 
-# 🔥 CONFIGURAR LOGGING
+# Configurar logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Logger para n8n
 logger = logging.getLogger("n8n")
 
 def create_app() -> FastAPI:
@@ -36,24 +34,25 @@ def create_app() -> FastAPI:
     app.add_middleware(IdempotencyMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # Routers
-    app.include_router(reservas_router, prefix=settings.API_V1_STR)
-    app.include_router(tickets_router, prefix=settings.API_V1_STR)
-    app.include_router(vendedores_router, prefix=settings.API_V1_STR)
+    # Routers - INCLUIR EL DE AUTENTICACIÓN
+    app.include_router(auth_router, prefix=settings.API_V1_STR, tags=["auth"])
+    app.include_router(reservas_router, prefix=settings.API_V1_STR, tags=["reservas"])
+    app.include_router(tickets_router, prefix=settings.API_V1_STR, tags=["tickets"])
+    app.include_router(vendedores_router, prefix=settings.API_V1_STR, tags=["vendedores"])
 
     @app.get("/", tags=["Root"])
     def read_root():
         return {"message": "SaaS Sistema-Tour API running successfully!"}
 
-    # 🔥 LOG DE INICIO
     logger.info("🚀 API iniciada correctamente")
     logger.info(f"📡 N8N Webhook URL: {settings.N8N_WEBHOOK_URL}")
     logger.info(f"🔑 N8N Header: {settings.N8N_HEADER_NAME}")
+    logger.info(f"🔐 Supabase URL: {settings.SUPABASE_URL[:30]}...")
 
     return app

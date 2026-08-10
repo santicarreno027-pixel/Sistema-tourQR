@@ -114,11 +114,11 @@ def generar_pantalla_html(color_fondo: str, titulo: str, mensaje: str, detalles_
     """
 
 
-def generar_bloque_cobro_html(reserva_id: str, saldo: float) -> str:
+def generar_bloque_cobro_html(reserva_id: str, signature: str, saldo: float) -> str:
     """
     Genera el bloque HTML del formulario de cobro en campo para el guía.
     Se inyecta dentro de detalles_html cuando hay saldo pendiente.
-    Llama al endpoint PATCH /api/v1/reservas/{id}/registrar-abono vía fetch JS.
+    Llama al endpoint POST /api/v1/tickets/scan/{id}/registrar-abono con la firma de seguridad.
     """
     return f"""
         <div class="cobro-box">
@@ -138,7 +138,7 @@ def generar_bloque_cobro_html(reserva_id: str, saldo: float) -> str:
             <button class="btn-cobrar" onclick="registrarCobro()">
                 ✅ Confirmar Cobro Recibido
             </button>
-            <p class="loading-msg" id="loading_msg">Registrando pago...</p>
+            <p class="loading-msg" id="loading_msg">Registrando pago y embarque...</p>
         </div>
 
         <script>
@@ -161,12 +161,11 @@ def generar_bloque_cobro_html(reserva_id: str, saldo: float) -> str:
 
             try {{
                 const response = await fetch(
-                    '/api/v1/reservas/{reserva_id}/registrar-abono?monto_abono=' + monto,
+                    `/api/v1/tickets/scan/{reserva_id}/registrar-abono?signature={signature}&monto_abono=` + monto,
                     {{
-                        method: 'PATCH',
+                        method: 'POST',
                         headers: {{
-                            'Content-Type': 'application/json',
-                            'X-API-Key': 'SST_FRONT_ACCESS_SECRET_2026'
+                            'Content-Type': 'application/json'
                         }}
                     }}
                 );
@@ -178,8 +177,8 @@ def generar_bloque_cobro_html(reserva_id: str, saldo: float) -> str:
                     if (saldoNuevo <= 0) {{
                         document.body.style.backgroundColor = '#2e7d32';
                         document.querySelector('.card').innerHTML = `
-                            <h1>✅ ¡PAGADO!</h1>
-                            <p>Saldo cancelado exitosamente.<br>El turista puede ingresar.</p>
+                            <h1>✅ ¡PAGADO Y EMBARCADO!</h1>
+                            <p>Saldo cancelado y acceso confirmado.<br>El turista puede ingresar.</p>
                             <div class="detalles">
                                 <h3>Resumen del Cobro</h3>
                                 Monto cobrado: <b>$` + data.datos_operacion.monto_abonado.toFixed(2) + ` MXN</b><br>
@@ -206,6 +205,82 @@ def generar_bloque_cobro_html(reserva_id: str, saldo: float) -> str:
                 document.querySelector('.btn-cobrar').disabled = false;
                 document.querySelector('.btn-cobrar').innerText = '✅ Confirmar Cobro Recibido';
                 loadingMsg.style.display = 'none';
+            }}
+        }}
+        </script>
+    """
+
+
+def generar_bloque_confirmar_html(reserva_id: str, signature: str) -> str:
+    """
+    Genera el bloque HTML del botón para confirmar el embarque del pasajero de manera explícita (GET/POST separation).
+    """
+    return f"""
+        <div class="confirmar-box" style="margin-top: 15px;">
+            <button class="btn-confirmar" onclick="confirmarEmbarque()" style="
+                background: rgba(0,0,0,0.3);
+                color: white;
+                border: 2px solid rgba(255,255,255,0.6);
+                padding: 14px 20px;
+                border-radius: 12px;
+                font-size: 1.2rem;
+                font-weight: 800;
+                cursor: pointer;
+                width: 100%;
+                letter-spacing: 0.5px;
+                transition: background 0.2s;
+                -webkit-tap-highlight-color: transparent;
+            ">
+                🚀 Confirmar Embarque
+            </button>
+            <p class="loading-msg" id="loading_msg_confirmar" style="display: none; font-size: 0.9rem; opacity: 0.8; margin-top: 8px;">Registrando embarque...</p>
+        </div>
+
+        <script>
+        async function confirmarEmbarque() {{
+            const btn = document.querySelector('.btn-confirmar');
+            const loading = document.getElementById('loading_msg_confirmar');
+            
+            btn.disabled = true;
+            btn.innerText = '⏳ Procesando...';
+            loading.style.display = 'block';
+
+            try {{
+                const response = await fetch(
+                    `/api/v1/tickets/scan/{reserva_id}/confirmar?signature={signature}`,
+                    {{
+                        method: 'POST',
+                        headers: {{
+                            'Content-Type': 'application/json'
+                        }}
+                    }}
+                );
+
+                const data = await response.json();
+
+                if (response.ok && data.valido) {{
+                    document.body.style.backgroundColor = '#1b5e20';
+                    document.querySelector('.card').innerHTML = `
+                        <h1>🟢 EMBARCADO OK</h1>
+                        <p>El embarque del pasajero ha sido registrado correctamente.</p>
+                        <div class="detalles">
+                            <h3>Resumen del Viaje</h3>
+                            Pasajero: <b>` + data.detalles.cliente_nombre + `</b><br>
+                            Tour: <b>` + data.detalles.tour_nombre + `</b><br>
+                            Escaneos: <b>` + data.detalles.contador_escaneos + `</b>
+                        </div>
+                    `;
+                }} else {{
+                    alert('Error: ' + (data.mensaje || 'No se pudo confirmar el embarque.'));
+                    btn.disabled = false;
+                    btn.innerText = '🚀 Confirmar Embarque';
+                    loading.style.display = 'none';
+                }}
+            }} catch (error) {{
+                alert('Error de conexión. Intente de nuevo.');
+                btn.disabled = false;
+                btn.innerText = '🚀 Confirmar Embarque';
+                loading.style.display = 'none';
             }}
         }}
         </script>

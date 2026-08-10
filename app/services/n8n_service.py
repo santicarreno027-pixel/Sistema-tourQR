@@ -19,11 +19,14 @@ class N8nService:
         """
         Envía datos a n8n para emisión de QR inicial con pool optimizado y tolerancia a fallos.
         """
+        from app.core.security import generar_firma_ticket
+        
         payload = {
             "reserva_id": str(reserva_id),
             "id_empresa": id_empresa,
             "cliente_email": cliente_email,
-            "evento": "reserva_creada"
+            "evento": "reserva_creada",
+            "signature": generar_firma_ticket(str(reserva_id), id_empresa)
         }
 
         # 🔥 LOGS EXTREMADAMENTE DETALLADOS

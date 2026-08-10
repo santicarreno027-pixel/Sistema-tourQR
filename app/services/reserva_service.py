@@ -257,20 +257,21 @@ class ReservaService:
             )
 
     # ============================================================
-    # 5. REGISTRAR ABONO MANUAL (NO CAMBIA - ya devuelve dict)
+    # 5. REGISTRAR ABONO MANUAL
     # ============================================================
     @staticmethod
-    async def registrar_abono_manual(db: AsyncSession, reserva_id: uuid.UUID, monto_abono: float, background_tasks):
+    async def registrar_abono_manual(db: AsyncSession, reserva_id: uuid.UUID, monto_abono: float, id_empresa: str, background_tasks):
         stmt = (
             select(FinanzasReserva)
             .options(joinedload(FinanzasReserva.reserva))  
             .where(FinanzasReserva.reserva_id == reserva_id)
+            .where(FinanzasReserva.id_empresa == id_empresa)
         )
         result = await db.execute(stmt)
         finanzas = result.scalar_one_or_none()
         
         if not finanzas:
-            raise HTTPException(status_code=404, detail="Registro financiero no encontrado.")
+            raise HTTPException(status_code=404, detail="Registro financiero no encontrado en esta empresa.")
         
         if finanzas.status_pago == EstadoPago.PAGADO or finanzas.monto_saldo <= 0:
             return {
@@ -317,16 +318,16 @@ class ReservaService:
         }
 
     # ============================================================
-    # 6. CANCELAR RESERVA (NO CAMBIA - ya devuelve dict)
+    # 6. CANCELAR RESERVA
     # ============================================================
     @staticmethod
-    async def cancelar_reserva_manual(db: AsyncSession, reserva_id: uuid.UUID):
-        stmt = select(Reserva).where(Reserva.id == reserva_id)
+    async def cancelar_reserva_manual(db: AsyncSession, reserva_id: uuid.UUID, id_empresa: str):
+        stmt = select(Reserva).where(Reserva.id == reserva_id).where(Reserva.id_empresa == id_empresa)
         result = await db.execute(stmt)
         reserva = result.scalar_one_or_none()
         
         if not reserva:
-            raise HTTPException(status_code=404, detail="La reserva no existe.")
+            raise HTTPException(status_code=404, detail="La reserva no existe en esta empresa.")
         
         reserva.estado = EstadoReserva.CANCELADO
         await db.commit()
