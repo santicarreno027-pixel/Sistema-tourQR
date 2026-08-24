@@ -160,39 +160,18 @@ class ReservaUpdate(BaseModel):
         return v
 
 # ==========================================
-# 6. SCHEMA PARA LA VISTA SQL (vista_reservas_completas)
+# 6. ESQUEMA DE RESPUESTA PAGINADA Y KPIS
 # ==========================================
-class ReservaVistaCompleta(BaseModel):
-    id: uuid.UUID
-    folio_fisico: Optional[str]
-    cliente_nombre: str
-    cliente_telefono: Optional[str]
-    cliente_email: EmailStr
-    tour_nombre: str
-    fecha_servicio: date
-    hora_salida: Optional[str]
-    ubicacion_pickup: Optional[str]
-    pax_adultos: int
-    pax_menores: int
-    pax_infantes: int
-    id_empresa: str
+class ReservaKPIsResponse(BaseModel):
+    total_reservas: int = 0
+    total_ventas: float = 0.0
+    con_saldo_pendiente: int = 0
+    saldo_total_pendiente: float = 0.0
+    total_completadas: int = 0
 
-    # 🌟 La vista expone la columna como "estado" (r.estado), no "estado_reserva"
-    estado_reserva: str
-    contador_escaneos: int
-    creado_en: datetime
-    primer_escaneo_en: Optional[datetime] = None
-    ultimo_escaneo_en: Optional[datetime] = None
-
-    vendedor_nombre: Optional[str] = None
-    monto_total: Optional[float] = None
-    monto_deposito: Optional[float] = None
-    monto_saldo: Optional[float] = None
-    status_pago: Optional[str] = None
-    finanzas_actualizado_en: Optional[datetime] = None
-
-    total_pax: int
-    estado_pago: str
-
-    class Config:
-        from_attributes = True
+class ReservaListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: List[ReservaResponse]
+    kpis: Optional[ReservaKPIsResponse] = None

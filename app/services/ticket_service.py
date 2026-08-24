@@ -16,6 +16,7 @@ class TicketService:
     @staticmethod
     def _reserva_a_dict(reserva: Reserva) -> dict:
         """Convierte un objeto Reserva a diccionario para evitar problemas de Pydantic"""
+        finanzas = getattr(reserva, 'finanzas', None)
         return {
             "id": reserva.id,
             "folio_fisico": reserva.folio_fisico,
@@ -35,11 +36,11 @@ class TicketService:
             "creado_en": reserva.creado_en,
             "primer_escaneo_en": reserva.primer_escaneo_en,
             "ultimo_escaneo_en": reserva.ultimo_escaneo_en,
-            # Campos de finanzas (si existen)
-            "monto_total": getattr(reserva, 'monto_total', None),
-            "monto_deposito": getattr(reserva, 'monto_deposito', None),
-            "monto_saldo": getattr(reserva, 'monto_saldo', None),
-            "status_pago": getattr(reserva, 'status_pago', None)
+            # Campos de finanzas (desde la relación finanzas)
+            "monto_total": finanzas.monto_total if finanzas else None,
+            "monto_deposito": finanzas.monto_deposito if finanzas else None,
+            "monto_saldo": finanzas.monto_saldo if finanzas else None,
+            "status_pago": finanzas.status_pago if finanzas else None
         }
 
     @staticmethod
@@ -182,8 +183,3 @@ class TicketService:
             mensaje=f"EMBARQUE CONFIRMADO. ¡Buen viaje! Escaneos totales: {reserva.contador_escaneos}",
             detalles=TicketService._reserva_a_dict(reserva)
         )
-
-    # Método de compatibilidad para evitar romper dependencias antiguas
-    @staticmethod
-    async def validar_y_registrar_escaneo(db: AsyncSession, ticket_id: uuid.UUID) -> ValidarTicketResult:
-        return await TicketService.confirmar_embarque_ticket(db, ticket_id)

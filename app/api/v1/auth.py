@@ -3,14 +3,13 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from app.api.middleware.auth import verify_token
-from app.api.middleware.auth import verify_token
 from supabase import create_client
 from app.core.config import settings
 import logging
 
 logger = logging.getLogger("n8n")
 
-router = APIRouter()
+router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
 # Inicializar Supabase
 supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
@@ -20,16 +19,10 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    nombre: Optional[str] = None
-    telefono: Optional[str] = None
-
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
-@router.post("/auth/login")
+@router.post("/login")
 async def login(request: LoginRequest):
     """
     Iniciar sesión con email y password
@@ -62,45 +55,7 @@ async def login(request: LoginRequest):
             detail=f"Credenciales inválidas: {str(e)}"
         )
 
-@router.post("/auth/register")
-async def register(request: RegisterRequest):
-    """
-    Registrar un nuevo usuario
-    """
-    try:
-        logger.info(f"📝 Registro de usuario: {request.email}")
-        
-        response = supabase.auth.sign_up({
-            "email": request.email,
-            "password": request.password,
-            "options": {
-                "data": {
-                    "nombre": request.nombre or request.email,
-                    "telefono": request.telefono or ""
-                }
-            }
-        })
-        
-        if not response.user:
-            raise HTTPException(status_code=400, detail="Error al crear usuario")
-        
-        logger.info(f"✅ Usuario registrado: {request.email}")
-        
-        return {
-            "message": "Usuario creado exitosamente",
-            "user": {
-                "id": response.user.id,
-                "email": response.user.email,
-                "nombre": response.user.user_metadata.get("nombre", response.user.email),
-                "telefono": response.user.user_metadata.get("telefono", ""),
-                "created_at": response.user.created_at
-            }
-        }
-    except Exception as e:
-        logger.error(f"❌ Error de registro: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Error de registro: {str(e)}")
-
-@router.post("/auth/logout")
+@router.post("/logout")
 async def logout():
     """
     Cerrar sesión
@@ -113,7 +68,7 @@ async def logout():
         logger.error(f"❌ Error al cerrar sesión: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Error al cerrar sesión: {str(e)}")
 
-@router.post("/auth/refresh")
+@router.post("/refresh")
 async def refresh_token(request: RefreshTokenRequest):
     """
     Refrescar el token de acceso
@@ -129,7 +84,7 @@ async def refresh_token(request: RefreshTokenRequest):
         logger.error(f"❌ Error al refrescar token: {str(e)}")
         raise HTTPException(status_code=401, detail=f"Error al refrescar token: {str(e)}")
 
-@router.get("/auth/me")
+@router.get("/me")
 async def get_me(current_user = Depends(verify_token)):
     """
     Obtener información del usuario autenticado

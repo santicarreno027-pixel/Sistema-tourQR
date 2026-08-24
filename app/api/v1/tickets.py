@@ -13,10 +13,7 @@ from app.views.ticket_html import generar_pantalla_html, generar_bloque_cobro_ht
 
 limiter = Limiter(key_func=get_remote_address)
 
-# =========================================================================
-# 🔥 ROUTER SIN AUTENTICACIÓN GLOBAL
-# =========================================================================
-router = APIRouter(prefix="/tickets", tags=["Tickets Scanner"])
+router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
 # =========================================================================
 # ENDPOINT PÚBLICO: Escaneo QR desde el celular del guía
@@ -210,48 +207,20 @@ async def obtener_estado_ticket(
 ):
     """
     Endpoint para consultar estado del ticket (solo admin/guía autorizado)
-    ✅ CON AUTENTICACIÓN - Protegido
+    ✅ CON AUTENTICACIÓN - Protegido (Solo lectura)
     """
-    resultado = await TicketService.validar_y_registrar_escaneo(db, ticket_id)
+    resultado = await TicketService.validar_ticket_lectura(db, ticket_id)
+    detalles = resultado.detalles or {}
     return {
         "valido": resultado.valido,
         "mensaje": resultado.mensaje,
         "detalles": {
-            "id": str(resultado.detalles.id) if resultado.detalles else None,
-            "cliente_nombre": resultado.detalles.cliente_nombre if resultado.detalles else None,
-            "tour_nombre": resultado.detalles.tour_nombre if resultado.detalles else None,
-            "estado": resultado.detalles.estado if resultado.detalles else None,
-            "contador_escaneos": resultado.detalles.contador_escaneos if resultado.detalles else 0
+            "id": str(detalles.get("id")) if detalles.get("id") else None,
+            "cliente_nombre": detalles.get("cliente_nombre"),
+            "tour_nombre": detalles.get("tour_nombre"),
+            "estado": detalles.get("estado"),
+            "contador_escaneos": detalles.get("contador_escaneos", 0),
+            "monto_saldo": detalles.get("monto_saldo"),
+            "status_pago": detalles.get("status_pago")
         }
-    }
-
-
-@router.get("/admin/listas")
-async def listas_tickets(
-    api_key: str = Depends(verify_api_key),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Listas todos los tickets (solo admin)
-    ✅ CON AUTENTICACIÓN - Protegido
-    """
-    from sqlalchemy import select
-    from app.models.reserva import Reserva
-    
-    stmt = select(Reserva).order_by(Reserva.creado_en.desc()).limit(100)
-    result = await db.execute(stmt)
-    reservas = result.scalars().all()
-    
-    return {
-        "total": len(reservas),
-        "tickets": [
-            {
-                "id": str(r.id),
-                "cliente": r.cliente_nombre,
-                "tour": r.tour_nombre,
-                "estado": r.estado,
-                "fecha": r.fecha_servicio.isoformat() if r.fecha_servicio else None
-            }
-            for r in reservas
-        ]
     }

@@ -40,11 +40,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Routers - INCLUIR EL DE AUTENTICACIÓN
-    app.include_router(auth_router, prefix=settings.API_V1_STR, tags=["auth"])
-    app.include_router(reservas_router, prefix=settings.API_V1_STR, tags=["reservas"])
-    app.include_router(tickets_router, prefix=settings.API_V1_STR, tags=["tickets"])
-    app.include_router(vendedores_router, prefix=settings.API_V1_STR, tags=["vendedores"])
+    # Routers
+    app.include_router(auth_router, prefix=settings.API_V1_STR)
+    app.include_router(reservas_router, prefix=settings.API_V1_STR)
+    app.include_router(tickets_router, prefix=settings.API_V1_STR)
+    app.include_router(vendedores_router, prefix=settings.API_V1_STR)
 
     @app.get("/", tags=["Root"])
     def read_root():

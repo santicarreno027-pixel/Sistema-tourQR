@@ -2,6 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
+import { fetchAPI } from '@/lib/api';
 
 export default function NuevaReservaPage() {
   const params = useParams();
@@ -66,11 +67,9 @@ export default function NuevaReservaPage() {
     };
 
     try {
-      const response = await fetch('http://localhost:8001/api/v1/reservas/', {
+      const response = await fetchAPI('/reservas/', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': 'SST_FRONT_ACCESS_SECRET_2026',
           'Idempotency-Key': idempotencyKey
         },
         body: JSON.stringify(payload)

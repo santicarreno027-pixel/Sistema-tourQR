@@ -3,6 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/hooks/useAuth';
+import { fetchAPI } from '@/lib/api';
 
 
 // ─── TIPOS ───────────────────────────────────────────────────────────────────
@@ -31,9 +32,15 @@ interface Reserva {
   status_pago: EstadoPago | null;
 }
 
+interface KPIs {
+  total_reservas: number;
+  total_ventas: number;
+  con_saldo_pendiente: number;
+  saldo_total_pendiente: number;
+  total_completadas: number;
+}
+
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
-const API_BASE = 'http://localhost:8001/api/v1';
-const HEADERS = { 'Content-Type': 'application/json', 'X-API-Key': 'SST_FRONT_ACCESS_SECRET_2026' };
 const TOURS = ['Xcaret Plus', 'Chichén Itzá', 'Tulum & Cobá', 'Ruta de Cenotes', 'Catamarán Isla Mujeres', 'Cozumel Snorkel'];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -55,10 +62,11 @@ export default function DashboardPage() {
   const { id_empresa } = useParams<{ id_empresa: string }>();
   const { nombre, rol, signOut } = useAuth();
 
-  const [reservas, setReservas]     = useState<Reserva[]>([]);
-  const [loading, setLoading]       = useState(true);
+  const [reservas, setReservas]         = useState<Reserva[]>([]);
+  const [kpis, setKpis]                 = useState<KPIs | null>(null);
+  const [loading, setLoading]           = useState(true);
   const [filtroEstado, setFiltroEstado] = useState<'TODAS' | EstadoReserva | 'SALDO'>('TODAS');
-  const [busqueda, setBusqueda]     = useState('');
+  const [busqueda, setBusqueda]         = useState('');
 
   // Modales
   const [modalEditar, setModalEditar]   = useState<Reserva | null>(null);
@@ -71,8 +79,16 @@ export default function DashboardPage() {
   const fetchReservas = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/reservas/?id_empresa=${id_empresa}`, { headers: HEADERS });
-      if (res.ok) setReservas(await res.json());
+      const res = await fetchAPI(`/reservas/?id_empresa=${id_empresa}&limit=100`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.items)) {
+          setReservas(data.items);
+          if (data.kpis) setKpis(data.kpis);
+        } else if (Array.isArray(data)) {
+          setReservas(data);
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -100,17 +116,17 @@ export default function DashboardPage() {
   });
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
-  const totalSaldo  = reservas.reduce((a, r) => a + (r.monto_saldo ?? 0), 0);
-  const totalVentas = reservas.reduce((a, r) => a + (r.monto_total ?? 0), 0);
-  const conSaldo    = reservas.filter(r => r.status_pago === 'PENDIENTE').length;
-  const pagadas     = reservas.filter(r => r.status_pago === 'PAGADO').length;
+  const totalSaldo    = kpis ? kpis.saldo_total_pendiente : reservas.reduce((a, r) => a + (r.monto_saldo ?? 0), 0);
+  const totalVentas   = kpis ? kpis.total_ventas : reservas.reduce((a, r) => a + (r.monto_total ?? 0), 0);
+  const conSaldo      = kpis ? kpis.con_saldo_pendiente : reservas.filter(r => r.status_pago === 'PENDIENTE').length;
+  const totalResCount = kpis ? kpis.total_reservas : reservas.length;
 
   // ── ACCIONES ──────────────────────────────────────────────────────────────
   const reenviarQR = async (r: Reserva) => {
     setGuardando(true);
     try {
-      const res = await fetch(`${API_BASE}/reservas/${r.id}/reenviar-qr?id_empresa=${id_empresa}`, {
-        method: 'POST', headers: HEADERS
+      const res = await fetchAPI(`/reservas/${r.id}/reenviar-qr?id_empresa=${id_empresa}`, {
+        method: 'POST'
       });
       const data = await res.json();
       showToast(res.ok ? `📧 QR enviado a ${r.cliente_email}` : data.detail, res.ok);
@@ -121,7 +137,7 @@ export default function DashboardPage() {
     if (!confirm(`¿Cancelar la reserva de ${r.cliente_nombre}?`)) return;
     setGuardando(true);
     try {
-      const res = await fetch(`${API_BASE}/reservas/${r.id}/cancelar`, { method: 'PATCH', headers: HEADERS });
+      const res = await fetchAPI(`/reservas/${r.id}/cancelar`, { method: 'PATCH' });
       showToast(res.ok ? 'Reserva cancelada' : 'Error al cancelar', res.ok);
       if (res.ok) fetchReservas();
     } finally { setGuardando(false); }
@@ -133,8 +149,8 @@ export default function DashboardPage() {
     if (isNaN(monto) || monto <= 0) return showToast('Monto inválido', false);
     setGuardando(true);
     try {
-      const res = await fetch(`${API_BASE}/reservas/${modalPagar.id}/registrar-abono?monto_abono=${monto}`, {
-        method: 'PATCH', headers: HEADERS
+      const res = await fetchAPI(`/reservas/${modalPagar.id}/registrar-abono?monto_abono=${monto}`, {
+        method: 'PATCH'
       });
       const data = await res.json();
       if (res.ok) {
@@ -158,8 +174,8 @@ export default function DashboardPage() {
 
     if (Object.keys(payload).length === 0) { setModalEditar(null); return; }
     try {
-      const res = await fetch(`${API_BASE}/reservas/${modalEditar.id}/editar?id_empresa=${id_empresa}`, {
-        method: 'PATCH', headers: HEADERS, body: JSON.stringify(payload)
+      const res = await fetchAPI(`/reservas/${modalEditar.id}/editar?id_empresa=${id_empresa}`, {
+        method: 'PATCH', body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok) { showToast('✅ Reserva actualizada'); setModalEditar(null); fetchReservas(); }
@@ -221,7 +237,7 @@ export default function DashboardPage() {
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            { label: 'Total Reservas', value: reservas.length, icon: '📋', color: 'border-blue-200 bg-blue-50' },
+            { label: 'Total Reservas', value: totalResCount, icon: '📋', color: 'border-blue-200 bg-blue-50' },
             { label: 'Total Vendido',  value: fmt(totalVentas), icon: '💰', color: 'border-emerald-200 bg-emerald-50' },
             { label: 'Con Saldo',      value: conSaldo, icon: '⏳', color: 'border-orange-200 bg-orange-50' },
             { label: 'Saldo Total',    value: fmt(totalSaldo), icon: '⚠️', color: 'border-red-200 bg-red-50' },

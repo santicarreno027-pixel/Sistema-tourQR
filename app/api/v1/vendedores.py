@@ -3,7 +3,7 @@ from app.schemas.vendedor import VendedorCreate, VendedorUpdate, VendedorRespons
 from app.services.vendedor_service import VendedorService
 from app.core.security import verificar_admin
 
-router = APIRouter(prefix="/vendedores", tags=["Gestión de Vendedores"])
+router = APIRouter(prefix="/vendedores", tags=["Vendedores"])
 
 
 @router.post("/", response_model=VendedorResponse, status_code=201)

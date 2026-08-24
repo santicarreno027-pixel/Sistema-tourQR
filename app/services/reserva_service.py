@@ -1,13 +1,13 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 from typing import List, Optional
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_, and_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.schemas.reserva import ReservaCreate, ReservaResponse, ReservaUpdate
+from app.schemas.reserva import ReservaCreate, ReservaResponse, ReservaUpdate, ReservaListResponse, ReservaKPIsResponse
 from app.models.reserva import Reserva, FinanzasReserva, EstadoReserva, EstadoPago
 from app.services.n8n_service import N8nService
 
@@ -116,64 +116,95 @@ class ReservaService:
             )
 
     # ============================================================
-    # 2. OBTENER TODAS LAS RESERVAS
+    # 2. OBTENER RESERVAS (Paginado, Filtrado y con KPIs de bajo consumo)
     # ============================================================
     @staticmethod
-    async def obtener_todas_las_reservas(db: AsyncSession, id_empresa: str) -> List[ReservaResponse]:
+    async def obtener_todas_las_reservas(
+        db: AsyncSession,
+        id_empresa: str,
+        fecha_desde: Optional[date] = None,
+        fecha_hasta: Optional[date] = None,
+        estado: Optional[EstadoReserva] = None,
+        status_pago: Optional[EstadoPago] = None,
+        busqueda: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> ReservaListResponse:
+        # 1. Filtros base
+        conditions = [Reserva.id_empresa == id_empresa]
+
+        if fecha_desde:
+            conditions.append(Reserva.fecha_servicio >= fecha_desde)
+        if fecha_hasta:
+            conditions.append(Reserva.fecha_servicio <= fecha_hasta)
+        if estado:
+            conditions.append(Reserva.estado == estado)
+        if status_pago:
+            conditions.append(FinanzasReserva.status_pago == status_pago)
+        if busqueda and busqueda.strip():
+            patron = f"%{busqueda.strip()}%"
+            conditions.append(
+                or_(
+                    Reserva.cliente_nombre.ilike(patron),
+                    Reserva.cliente_email.ilike(patron),
+                    Reserva.folio_fisico.ilike(patron),
+                    Reserva.tour_nombre.ilike(patron),
+                    Reserva.cliente_telefono.ilike(patron)
+                )
+            )
+
+        # 2. Conteo total de coincidencias para paginación
+        count_query = select(func.count(Reserva.id)).join(Reserva.finanzas).where(and_(*conditions))
+        count_result = await db.execute(count_query)
+        total_count = count_result.scalar() or 0
+
+        # 3. KPIs contables agregados a nivel SQL (ahorra traer miles de filas a memoria)
+        kpi_query = (
+            select(
+                func.count(Reserva.id).label("total_reservas"),
+                func.coalesce(func.sum(FinanzasReserva.monto_total), 0.0).label("total_ventas"),
+                func.count(case((FinanzasReserva.status_pago == EstadoPago.PENDIENTE, 1))).label("con_saldo_pendiente"),
+                func.coalesce(func.sum(case((FinanzasReserva.status_pago == EstadoPago.PENDIENTE, FinanzasReserva.monto_saldo), else_=0.0)), 0.0).label("saldo_total_pendiente"),
+                func.count(case((Reserva.estado == EstadoReserva.COMPLETADO, 1))).label("total_completadas")
+            )
+            .join(Reserva.finanzas)
+            .where(Reserva.id_empresa == id_empresa)
+        )
+        kpi_result = await db.execute(kpi_query)
+        kpi_row = kpi_result.one_or_none()
+
+        kpis = None
+        if kpi_row:
+            kpis = ReservaKPIsResponse(
+                total_reservas=kpi_row.total_reservas or 0,
+                total_ventas=float(kpi_row.total_ventas or 0.0),
+                con_saldo_pendiente=kpi_row.con_saldo_pendiente or 0,
+                saldo_total_pendiente=float(kpi_row.saldo_total_pendiente or 0.0),
+                total_completadas=kpi_row.total_completadas or 0
+            )
+
+        # 4. Consulta del lote paginado
         query = (
             select(Reserva)
-            .options(joinedload(Reserva.finanzas))  
-            .where(Reserva.id_empresa == id_empresa)
+            .join(Reserva.finanzas)
+            .options(joinedload(Reserva.finanzas))
+            .where(and_(*conditions))
             .order_by(Reserva.creado_en.desc())
+            .limit(limit)
+            .offset(offset)
         )
         result = await db.execute(query)
         reservas = result.scalars().all()
-        
-        # ✅ Convertir cada reserva a ReservaResponse
-        return [ReservaService._model_to_response(r) for r in reservas]
 
-    # ============================================================
-    # 3. OBTENER LISTA DE TOURS (NO CAMBIA - ya devuelve dict)
-    # ============================================================
-    @staticmethod
-    async def obtener_lista_de_tours(db: AsyncSession, id_empresa: str):
-        try:
-            query = (
-                select(
-                    Reserva.tour_nombre,
-                    Reserva.hora_salida,
-                    func.count(Reserva.id).label("total_reservas"),
-                    func.sum(Reserva.pax_adultos + Reserva.pax_menores + Reserva.pax_infantes).label("pasajeros_totales_historicos")
-                )
-                .where(Reserva.id_empresa == id_empresa)
-                .group_by(Reserva.tour_nombre, Reserva.hora_salida)
-                .order_by(Reserva.tour_nombre.asc(), Reserva.hora_salida.asc())
-            )
-            
-            result = await db.execute(query)
-            filas = result.all()
-            
-            reporte_tours = []
-            for fila in filas:
-                reporte_tours.append({
-                    "tour_nombre": fila.tour_nombre,
-                    "hora_salida": fila.hora_salida,
-                    "metricas_futuras": {
-                        "operaciones_registradas": fila.total_reservas,
-                        "volumen_pasajeros_acumulado": int(fila.pasajeros_totales_historicos or 0)
-                    }
-                })
-                
-            return {
-                "id_empresa": id_empresa,
-                "total_tours_configurados": len(reporte_tours),
-                "catalogo_tours": reporte_tours
-            }
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error interno al compilar el catálogo de tours: {str(e)}"
-            )
+        items = [ReservaService._model_to_response(r) for r in reservas]
+
+        return ReservaListResponse(
+            total=total_count,
+            limit=limit,
+            offset=offset,
+            items=items,
+            kpis=kpis
+        )
 
     # ============================================================
     # 4. OBTENER REPORTE DE VENDEDOR (NO CAMBIA - ya devuelve dict)

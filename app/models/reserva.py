@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Float, DateTime, Date, ForeignKey
+from sqlalchemy import Column, String, Integer, Float, DateTime, Date, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -45,9 +45,14 @@ class EstadoPago(str, enum.Enum):
 # =========================================================================
 class Reserva(Base):
     __tablename__ = "reservas"
+    __table_args__ = (
+        Index("idx_reservas_empresa_fecha", "id_empresa", "fecha_servicio"),
+        Index("idx_reservas_empresa_creado", "id_empresa", "creado_en"),
+        Index("idx_reservas_empresa_estado", "id_empresa", "estado"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, index=True)
-    id_empresa = Column(String(50), nullable=False)  # ID de la agencia SaaS multi-tenant
+    id_empresa = Column(String(50), nullable=False, index=True)  # ID de la agencia SaaS multi-tenant
     folio_fisico = Column(String(20), nullable=True)
     
     cliente_nombre = Column(String(100), nullable=False)
@@ -55,7 +60,7 @@ class Reserva(Base):
     cliente_email = Column(String(100), nullable=False)
     
     tour_nombre = Column(String(100), nullable=False)
-    fecha_servicio = Column(Date, nullable=False)
+    fecha_servicio = Column(Date, nullable=False, index=True)
     hora_salida = Column(String(30), nullable=True)
     ubicacion_pickup = Column(String(200), nullable=True)
     
@@ -86,6 +91,9 @@ class Reserva(Base):
 # =========================================================================
 class FinanzasReserva(Base):
     __tablename__ = "finanzas_reservas"
+    __table_args__ = (
+        Index("idx_finanzas_empresa_status", "id_empresa", "status_pago"),
+    )
 
     reserva_id = Column(UUID(as_uuid=True), ForeignKey("reservas.id", ondelete="CASCADE"), primary_key=True)
     vendedor_nombre = Column(String(50), nullable=False)
@@ -97,7 +105,7 @@ class FinanzasReserva(Base):
     status_pago = Column(String(30), default=EstadoPago.PENDIENTE, nullable=False)
     
     # ✅ AGREGAR id_empresa (coincide con la tabla en Supabase)
-    id_empresa = Column(String(100), nullable=True)  # O String(100) si es más largo
+    id_empresa = Column(String(100), nullable=True, index=True)
     
     actualizado_en = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
